@@ -48,16 +48,14 @@ for _, row in nber_df.iterrows():
         nber_periods.append({"start": start, "end": row["date"]})
         start = None
 
-def add_recessions(fig, add_legend_entry=False):
-    for p in nber_periods:
-        fig.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey",
-                      opacity=0.15, line_width=0)
-    if add_legend_entry:
-        fig.add_trace(go.Scatter(
-            x=[None], y=[None], mode="markers",
-            marker=dict(size=10, color="grey", opacity=0.4, symbol="square"),
-            name="NBER Recession",
-        ))
+def add_recessions(fig, label=False):
+    for i, p in enumerate(nber_periods):
+        fig.add_vrect(
+            x0=p["start"], x1=p["end"], fillcolor="grey",
+            opacity=0.15, line_width=0,
+            annotation_text="NBER Recession" if (label and i == 0) else "",
+            annotation_position="top left",
+        )
     return fig
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -79,9 +77,9 @@ st.divider()
 st.subheader("Recession Probability Over Time (1985–Present)")
 
 fig = go.Figure()
-add_recessions(fig, add_legend_entry=True)
+add_recessions(fig, label=True)
 fig.add_hline(y=0.5, line_dash="dash", line_color="red", opacity=0.5,
-              annotation_text="50% threshold", annotation_position="bottom right")
+              annotation_text="50% threshold")
 fig.add_trace(go.Scatter(
     x=rec_out["date"], y=rec_out["recession_prob"],
     mode="lines", name="P(Recession)",
@@ -91,10 +89,10 @@ fig.add_trace(go.Scatter(
 fig.update_layout(
     height=350,
     yaxis=dict(title="Probability", tickformat=".0%", range=[0, 1]),
-    xaxis_title="", margin=dict(l=0, r=20, t=10, b=0),
-    legend=dict(orientation="h", y=1.05),
+    xaxis_title="", margin=dict(l=0, r=0, t=30, b=0),
+    modebar=dict(orientation="v", bgcolor="rgba(0,0,0,0)"),
 )
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+st.plotly_chart(fig, use_container_width=True)
 
 # ── Feature charts ────────────────────────────────────────────────────────────
 
@@ -113,7 +111,7 @@ with col_a:
                               name="10Y-3M", line=dict(color="#F4A261", dash="dash")))
     fig2.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0),
                        yaxis_title="Spread (%)", legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig2, use_container_width=True)
 
 with col_b:
     st.markdown("**Unemployment Rate**")
@@ -123,7 +121,7 @@ with col_b:
                               name="UNRATE", line=dict(color="#E63946")))
     fig3.update_layout(height=280, margin=dict(l=0, r=0, t=0, b=0),
                        yaxis_title="Rate (%)", legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig3, use_container_width=True)
 
 # ── Backtesting note ──────────────────────────────────────────────────────────
 
