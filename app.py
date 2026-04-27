@@ -195,11 +195,17 @@ if not recession_df.empty:
         fig_rec.add_vrect(
             x0=period["start"], x1=period["end"],
             fillcolor="grey", opacity=0.15, line_width=0,
-            annotation_text="NBER Recession", annotation_position="top left",
         )
 
+    # Single legend entry for NBER shading
+    fig_rec.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(size=10, color="grey", opacity=0.4, symbol="square"),
+        name="NBER Recession",
+    ))
+
     fig_rec.add_hline(y=0.5, line_dash="dash", line_color="red", opacity=0.5,
-                      annotation_text="50% threshold")
+                      annotation_text="50% threshold", annotation_position="bottom right")
 
     fig_rec.add_trace(go.Scatter(
         x=recession_df["date"],
@@ -215,10 +221,11 @@ if not recession_df.empty:
         yaxis=dict(title="P(Recession next 6 months)", tickformat=".0%", range=[0, 1]),
         xaxis_title="Date",
         height=320,
-        margin=dict(l=0, r=0, t=10, b=0),
+        margin=dict(l=0, r=20, t=10, b=0),
         legend=dict(orientation="h", y=1.05),
     )
-    st.plotly_chart(fig_rec, use_container_width=True)
+    st.plotly_chart(fig_rec, use_container_width=True,
+                    config={"displayModeBar": False})
 
     latest_rec = recession_df.iloc[-1]
     st.caption(
