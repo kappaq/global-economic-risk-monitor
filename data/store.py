@@ -1,17 +1,18 @@
 """DuckDB read/write layer. All database access goes through this module."""
 
-import os
+import time
 import duckdb
 import pandas as pd
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "economic_risk.db"
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+_SCHEMA_SQL: str = SCHEMA_PATH.read_text()
 
 
 def get_connection() -> duckdb.DuckDBPyConnection:
     conn = duckdb.connect(str(DB_PATH))
-    conn.execute(SCHEMA_PATH.read_text())
+    conn.execute(_SCHEMA_SQL)
     return conn
 
 
@@ -91,8 +92,7 @@ def latest_indicator_date(country_code: str = "USA") -> pd.Timestamp | None:
 
 
 def data_is_stale(max_age_hours: int = 24) -> bool:
-    latest = latest_indicator_date()
-    if latest is None:
+    if not DB_PATH.exists():
         return True
-    age = pd.Timestamp.now() - latest
-    return age.total_seconds() / 3600 > max_age_hours
+    age_seconds = time.time() - DB_PATH.stat().st_mtime
+    return age_seconds / 3600 > max_age_hours

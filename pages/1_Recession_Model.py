@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from sklearn.metrics import roc_auc_score, precision_score, recall_score
 
-from data.store import read_indicators, read_model_outputs
+from data.store import read_indicators, read_indicators_multi, read_model_outputs
 
 st.set_page_config(
     page_title="Recession Model",
@@ -26,16 +26,12 @@ def load_data():
     rec_out = read_model_outputs(country_code="USA", model_name="recession")
     rec_out["date"] = pd.to_datetime(rec_out["date"])
 
-    def _get(series_id):
-        df = read_indicators(country_code="USA", series_id=series_id)
-        df["date"] = pd.to_datetime(df["date"])
-        return df.set_index("date")["value"].sort_index().resample("MS").last()
-
-    nber  = _get("USREC")
-    t10y2 = _get("T10Y2Y").resample("MS").mean()
-    t10y3 = _get("T10Y3M").resample("MS").mean()
-    unemp = _get("UNRATE")
-    indpro = _get("INDPRO")
+    series = read_indicators_multi("USA", ["USREC", "T10Y2Y", "T10Y3M", "UNRATE", "INDPRO"])
+    nber   = series.get("USREC",  pd.Series(dtype=float)).resample("MS").last()
+    t10y2  = series.get("T10Y2Y", pd.Series(dtype=float)).resample("MS").mean()
+    t10y3  = series.get("T10Y3M", pd.Series(dtype=float)).resample("MS").mean()
+    unemp  = series.get("UNRATE", pd.Series(dtype=float)).resample("MS").last()
+    indpro = series.get("INDPRO", pd.Series(dtype=float)).resample("MS").last()
 
     return rec_out.sort_values("date"), nber, t10y2, t10y3, unemp, indpro
 
@@ -64,7 +60,7 @@ def add_recessions(fig, label=False):
 # ── KPI metrics ───────────────────────────────────────────────────────────────
 
 latest = rec_out.iloc[-1]
-prev   = rec_out.iloc[-4]
+prev   = rec_out.iloc[-4] if len(rec_out) >= 4 else rec_out.iloc[0]
 
 with st.container(border=True):
     c1, c2, c3, c4 = st.columns(4)

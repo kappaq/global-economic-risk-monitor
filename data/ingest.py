@@ -79,7 +79,6 @@ def fetch_worldbank_indicator(indicator_code: str, countries: list[str]) -> pd.D
     for entry in payload[1]:
         if entry["value"] is None:
             continue
-        iso2 = entry["countryiso3code"][:2] if len(entry["countryiso3code"]) == 3 else entry["country"]["id"]
         country_code = iso3_map.get(entry["country"]["id"], entry["countryiso3code"])
         rows.append({
             "country_code": country_code,

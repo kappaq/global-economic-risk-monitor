@@ -71,6 +71,7 @@ class InflationModel(BaseRiskModel):
     def predict(self, features: pd.DataFrame) -> pd.DataFrame:
         X = features.values
         # Posterior state probabilities via Viterbi forward-backward
+        # Smoothed posterior state probabilities via forward-backward algorithm
         log_probs = self.model.predict_proba(X)
 
         rows = []

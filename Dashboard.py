@@ -213,7 +213,8 @@ st.divider()
 sel = st.session_state.selected_country
 meta = COUNTRY_META.get(sel, {})
 indicators = load_country_indicators(sel)
-model_row = map_data[map_data["country_code"] == sel].iloc[0] if not map_data.empty and sel in map_data["country_code"].values else None
+_filtered = map_data[map_data["country_code"] == sel] if not map_data.empty else pd.DataFrame()
+model_row = _filtered.iloc[0] if not _filtered.empty else None
 
 st.subheader(f":material/pin_drop: {meta.get('flag','')} {meta.get('name', sel)} — Detail View")
 st.caption("Click any country on the map above to switch the detail view.")
@@ -436,6 +437,8 @@ def generate_risk_summary(context_str: str) -> str | None:
             ],
         )
         return response.content[0].text
+    except anthropic.APIError as exc:
+        return f"_Summary unavailable ({type(exc).__name__}): {exc}_"
     except Exception as exc:
         return f"_Summary unavailable: {exc}_"
 
