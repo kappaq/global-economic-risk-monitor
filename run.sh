@@ -19,4 +19,4 @@ python -m models.composite
 
 # Launch app
 echo "[4/4] Starting dashboard at http://localhost:8501"
-streamlit run app.py
+streamlit run Dashboard.py

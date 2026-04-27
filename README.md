@@ -60,7 +60,7 @@ python -m models.inflation
 python -m models.composite
 
 # Launch app
-streamlit run app.py
+streamlit run Dashboard.py
 ```
 
 The pipeline is **idempotent** — safe to re-run at any time. The app also has a **Refresh Data** button that re-runs the full pipeline from the UI.
