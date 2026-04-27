@@ -281,3 +281,38 @@ with tab_inf:
             f"High: {probs_latest.get('high', 0):.0%}. "
             f"Model: Gaussian HMM (3 states) on CPI, Core CPI, PCE, expectations."
         )
+
+st.divider()
+
+# ── Deep-dive navigation ──────────────────────────────────────────────────────
+
+st.subheader(":material/search: Explore Model Details")
+nav1, nav2 = st.columns(2)
+
+with nav1:
+    with st.container(border=True):
+        st.markdown("#### :material/trending_down: Recession Model")
+        st.markdown(
+            "Backtesting · Key indicators · Confusion matrix · "
+            "Feature breakdown and model notes."
+        )
+        st.page_link(
+            "pages/1_Recession_Model.py",
+            label="Open Recession Deep-Dive",
+            icon=":material/open_in_new:",
+            use_container_width=True,
+        )
+
+with nav2:
+    with st.container(border=True):
+        st.markdown("#### :material/trending_up: Inflation Model")
+        st.markdown(
+            "Regime history · CPI & PCE charts · "
+            "Monthly probability table and model notes."
+        )
+        st.page_link(
+            "pages/2_Inflation_Model.py",
+            label="Open Inflation Deep-Dive",
+            icon=":material/open_in_new:",
+            use_container_width=True,
+        )
