@@ -101,3 +101,27 @@ Key architectural and modeling choices, with rationale and trade-offs considered
 **Why:** The LLM summary synthesizes all model outputs into a 2–3 paragraph executive brief that no chart can replicate — it explains *what the combination of signals means*, not just what each number is. Haiku was chosen over larger models for two reasons: (1) latency — the dashboard must feel responsive, and Haiku responds in under 2 seconds; (2) cost — the task is structured summarization, not complex reasoning, so paying for Opus would add expense without quality benefit. Prompt caching on the stable system prompt reduces per-request cost by ~90% on repeated loads, and Streamlit's `@st.cache_data(ttl=3600)` avoids calling the API on every page rerun.
 
 **Trade-off:** The feature requires an Anthropic API key and billing setup, which adds friction for a new user. The opt-in design (silent skip when no key is set) ensures the app is fully functional without it — the LLM summary is an enhancement, not a dependency.
+
+---
+
+## 11. Code review process: BASPCT framework
+
+The codebase was reviewed after initial implementation using the **BASPCT** mnemonic — a structured Python code review checklist applied in order:
+
+| Pass | Focus | Key findings & fixes |
+|------|-------|----------------------|
+| **B — Bug Hunter** | Logic errors, type safety, bounds | `data_is_stale()` was comparing historical macro data dates (always months old) against now — always returned `True`. Fixed to use DB file mtime. Added `iloc` bounds guards in the recession page and Dashboard country filter. |
+| **A — Architect** | Package boundaries, separation of concerns, query efficiency | Recession detail page made 5 separate `read_indicators()` calls; replaced with one `read_indicators_multi()` batch query. Import boundaries between data / model / UI layers confirmed clean — no circular imports. |
+| **S — Security** | Injection, secrets, exception handling | SQL queries use parameterised placeholders throughout — no f-string injection risk. API keys loaded exclusively from environment variables. Narrowed overly broad `except Exception` in the Anthropic API call to catch `anthropic.APIError` first. |
+| **P — Performance** | Redundant I/O, unnecessary computation | Schema SQL was re-read from disk on every DuckDB connection — cached at module level. Yield spread resampling in the recession page was calling `.resample("MS").mean()` on already-monthly data; fixed to apply mean aggregation on raw daily data. |
+| **C — Clean Code** | Dead code, misleading comments, PEP 8 | Removed dead `iso2` variable in `ingest.py`. Corrected misleading comment in `inflation.py` that attributed `predict_proba()` to "Viterbi" — it uses the forward-backward algorithm; Viterbi gives a hard state sequence, not probabilities. |
+| **T — Tests** | Unit and integration coverage | Added 24 pytest tests across three modules (store, composite model, ingest parsing). All tests run without network calls or a real FRED key — World Bank HTTP responses are monkeypatched; DB is redirected to a `tmp_path` fixture. |
+
+**Running the test suite:**
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+**Why BASPCT over an ad-hoc review?** The ordered pass structure forces a deliberate separation between correctness (B), architecture (A), security (S), performance (P), style (C), and validation (T). Running them in order prevents premature optimisation and ensures bugs are caught before tests are written against broken behaviour.
