@@ -69,7 +69,7 @@ def load_map_data() -> pd.DataFrame:
                 "name": COUNTRY_META[code]["name"],
                 "composite_risk": latest["composite_risk"],
                 "recession_prob": latest["recession_prob"],
-                "inflation_state": "N/A",
+                "inflation_state": latest["inflation_state"] or "N/A",
             })
     return pd.DataFrame(rows)
 
