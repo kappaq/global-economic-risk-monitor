@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from data.store import data_is_stale, read_model_outputs, read_indicators
+from data.store import data_is_stale, read_model_outputs, read_indicators, read_indicators_multi
 from data.ingest import run_pipeline
 from models.recession import RecessionModel
 from models.inflation import InflationModel
@@ -73,27 +73,16 @@ def load_map_data() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_country_indicators(country_code: str) -> dict:
-    """Load available indicators for any country from DuckDB."""
-    def _get(series_id):
-        df = read_indicators(country_code=country_code, series_id=series_id)
-        if df.empty:
-            return None
-        df["date"] = pd.to_datetime(df["date"])
-        return df.set_index("date")["value"].sort_index()
-
+    """Fetch all indicators for a country in one DB query."""
     if country_code == "USA":
-        return {
-            "T10Y2Y":   _get("T10Y2Y"),
-            "T10Y3M":   _get("T10Y3M"),
-            "UNRATE":   _get("UNRATE"),
-            "INDPRO":   _get("INDPRO"),
-            "CPIAUCSL": _get("CPIAUCSL"),
-            "VIXCLS":   _get("VIXCLS"),
-        }
+        series_ids = ["T10Y2Y", "T10Y3M", "UNRATE", "INDPRO", "CPIAUCSL", "VIXCLS"]
+        return read_indicators_multi("USA", series_ids)
+    wb_ids = ["NY.GDP.MKTP.KD.ZG", "FP.CPI.TOTL.ZG", "SL.UEM.TOTL.ZS"]
+    raw = read_indicators_multi(country_code, wb_ids)
     return {
-        "GDP Growth":   _get("NY.GDP.MKTP.KD.ZG"),
-        "CPI Inflation": _get("FP.CPI.TOTL.ZG"),
-        "Unemployment": _get("SL.UEM.TOTL.ZS"),
+        "GDP Growth":    raw.get("NY.GDP.MKTP.KD.ZG"),
+        "CPI Inflation": raw.get("FP.CPI.TOTL.ZG"),
+        "Unemployment":  raw.get("SL.UEM.TOTL.ZS"),
     }
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -146,6 +135,7 @@ st.divider()
 map_data      = load_map_data()
 recession_df  = load_recession_outputs()
 inflation_df  = load_inflation_outputs()
+nber_periods  = load_nber_recessions()
 
 left, right = st.columns([3, 2])
 
@@ -239,7 +229,6 @@ if sel == "USA":
         with st.container(border=True):
             st.markdown("**Yield Curve Spreads**")
             fig_d1 = go.Figure()
-            nber_periods = load_nber_recessions()
             for p in nber_periods:
                 fig_d1.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey", opacity=0.12, line_width=0)
             fig_d1.add_hline(y=0, line_dash="dot", line_color="black", opacity=0.3)
@@ -307,10 +296,9 @@ with tab_rec:
     if not recession_df.empty:
         recession_df["date"] = pd.to_datetime(recession_df["date"])
         recession_df = recession_df.sort_values("date")
-        nber = load_nber_recessions()
 
         fig_rec = go.Figure()
-        for i, period in enumerate(nber):
+        for i, period in enumerate(nber_periods):
             fig_rec.add_vrect(
                 x0=period["start"], x1=period["end"],
                 fillcolor="grey", opacity=0.15, line_width=0,

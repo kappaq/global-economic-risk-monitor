@@ -35,6 +35,24 @@ def upsert_model_outputs(df: pd.DataFrame) -> None:
         """)
 
 
+def read_indicators_multi(country_code: str, series_ids: list[str]) -> dict[str, pd.Series]:
+    """Fetch multiple series in one query and return as {series_id: pd.Series}."""
+    placeholders = ", ".join("?" for _ in series_ids)
+    query = f"""
+        SELECT series_id, date, value FROM indicators
+        WHERE country_code = ? AND series_id IN ({placeholders})
+        ORDER BY date
+    """
+    with get_connection() as conn:
+        df = conn.execute(query, [country_code] + series_ids).df()
+    result = {}
+    for sid, grp in df.groupby("series_id"):
+        s = grp.set_index("date")["value"]
+        s.index = pd.to_datetime(s.index)
+        result[sid] = s.sort_index()
+    return result
+
+
 def read_indicators(country_code: str = None, series_id: str = None) -> pd.DataFrame:
     query = "SELECT * FROM indicators WHERE 1=1"
     params = []
