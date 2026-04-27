@@ -61,12 +61,22 @@ def score_country(country_code: str) -> pd.DataFrame:
         + WEIGHTS["unemployment_proxy"] * unemployment_proxy
     )
 
+    # Rule-based inflation regime from CPI level (no HMM — insufficient monthly data)
+    def _cpi_regime(val: float) -> str:
+        if val < 2.0:
+            return "low"
+        elif val <= 4.0:
+            return "moderate"
+        return "high"
+
+    inflation_states = cpi.apply(_cpi_regime).values
+
     return pd.DataFrame({
         "country_code":   country_code,
         "model_name":     MODEL_NAME,
         "date":           common_idx,
         "recession_prob":  recession_proxy.values,
-        "inflation_state": None,
+        "inflation_state": inflation_states,
         "inflation_probs": None,
         "composite_risk":  composite.values,
     })
