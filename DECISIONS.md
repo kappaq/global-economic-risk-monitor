@@ -91,3 +91,13 @@ Key architectural and modeling choices, with rationale and trade-offs considered
 **Why:** NBER recession periods cover roughly 12% of months since 1985. Without balancing, the model learns to predict "no recession" almost always and achieves high accuracy but zero recall on the minority class. Balanced weighting upsamples recession months to give the model signal on rare events.
 
 **Trade-off:** Slightly inflated false-positive rate. Acceptable given the use case — a false alarm is less costly than missing a recession signal in a risk monitoring tool.
+
+---
+
+## 10. LLM risk summary: Claude Haiku with prompt caching, opt-in
+
+**Chose:** `claude-haiku-4-5` via the Anthropic SDK, with `cache_control: ephemeral` on the system prompt. Feature is opt-in — only renders if `ANTHROPIC_API_KEY` is present in the environment.
+
+**Why:** The LLM summary synthesizes all model outputs into a 2–3 paragraph executive brief that no chart can replicate — it explains *what the combination of signals means*, not just what each number is. Haiku was chosen over larger models for two reasons: (1) latency — the dashboard must feel responsive, and Haiku responds in under 2 seconds; (2) cost — the task is structured summarization, not complex reasoning, so paying for Opus would add expense without quality benefit. Prompt caching on the stable system prompt reduces per-request cost by ~90% on repeated loads, and Streamlit's `@st.cache_data(ttl=3600)` avoids calling the API on every page rerun.
+
+**Trade-off:** The feature requires an Anthropic API key and billing setup, which adds friction for a new user. The opt-in design (silent skip when no key is set) ensures the app is fully functional without it — the LLM summary is an enhancement, not a dependency.

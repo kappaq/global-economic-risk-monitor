@@ -1,0 +1,6 @@
+economic_risk.db
+.env
+__pycache__
+*.pyc
+.git
+*.pdf

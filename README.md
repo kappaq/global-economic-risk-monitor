@@ -44,6 +44,26 @@ This will:
 3. Train and run both models
 4. Launch the Streamlit dashboard at http://localhost:8501
 
+### Optional: LLM Risk Summary
+
+Add your Anthropic API key to `.env` to enable the AI-generated macro risk brief:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The section is silently skipped if the key is absent — the app works fully without it.
+
+---
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Opens at http://localhost:8501. API keys are read from your `.env` file automatically.
+
 ---
 
 ## Manual Steps (if preferred)
