@@ -91,21 +91,40 @@ The pipeline is **idempotent** — safe to re-run at any time. The app also has 
 
 ```
 ├── data/
-│   ├── ingest.py       # FRED + World Bank fetchers
-│   ├── store.py        # DuckDB read/write layer
-│   └── schema.sql      # Table definitions
+│   ├── ingest.py           # FRED + World Bank fetchers
+│   ├── store.py            # DuckDB read/write layer
+│   └── schema.sql          # Table definitions
 ├── models/
-│   ├── base.py         # Abstract base model class
-│   ├── recession.py    # Logistic regression recession model
-│   ├── inflation.py    # Gaussian HMM inflation regime model
-│   └── composite.py    # Multi-country composite risk scorer
+│   ├── base.py             # Abstract base model class
+│   ├── recession.py        # Logistic regression recession model
+│   ├── inflation.py        # Gaussian HMM inflation regime model
+│   └── composite.py        # Multi-country composite risk scorer
 ├── pages/
-│   ├── 1_Recession_Model.py   # Recession deep-dive page
-│   └── 2_Inflation_Model.py   # Inflation deep-dive page
-├── app.py              # Main Streamlit dashboard
-├── DECISIONS.md        # Key design choices and trade-offs
-└── requirements.txt
+│   ├── 1_Recession_Model.py    # Recession deep-dive page
+│   └── 2_Inflation_Model.py    # Inflation deep-dive page
+├── tests/
+│   ├── conftest.py         # Shared pytest fixtures (temp DB, seeded data)
+│   ├── test_store.py       # Store layer: upsert, read, staleness
+│   ├── test_composite.py   # Composite model: zscore, scoring, labels
+│   └── test_ingest.py      # World Bank response parsing
+├── Dashboard.py            # Main Streamlit dashboard
+├── Dockerfile              # Container image definition
+├── docker-compose.yml      # Single-command Docker startup
+├── DECISIONS.md            # Key design choices and trade-offs
+├── requirements.txt        # Runtime dependencies
+└── requirements-dev.txt    # Test dependencies (pytest)
 ```
+
+---
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+24 tests covering the store layer, composite risk scorer, and World Bank ingest parsing. All tests run without network calls or a live FRED key.
 
 ---
 

@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+AGENTS.md
+.pytest_cache/
+=0.40
