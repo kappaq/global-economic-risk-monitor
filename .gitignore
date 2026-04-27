@@ -6,5 +6,6 @@ __pycache__/
 .venv/
 venv/
 AGENTS.md
+.claude/
 .pytest_cache/
 =0.40
