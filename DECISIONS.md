@@ -125,3 +125,48 @@ pytest tests/ -v
 ```
 
 **Why BASPCT over an ad-hoc review?** The ordered pass structure forces a deliberate separation between correctness (B), architecture (A), security (S), performance (P), style (C), and validation (T). Running them in order prevents premature optimisation and ensures bugs are caught before tests are written against broken behaviour.
+
+---
+
+## 12. Multi-agent code review and targeted hardening (post-BASPCT)
+
+A second review pass was run using four specialist AI agents (code-reviewer, data-scientist, data-engineer, Streamlit-UX) in parallel. Their consolidated findings drove a targeted set of fixes applied in priority order:
+
+**Critical fixes applied:**
+
+| Fix | Rationale |
+|-----|-----------|
+| `get_connection()` converted from plain function to `@contextmanager` | DuckDB's raw connection did not guarantee `close()` on exception; explicit `try/finally` removes that ambiguity. |
+| `fetch_fred_series()` raises `RuntimeError` when `rows` is empty | `pd.concat([])` raises `ValueError` — guarded before concatenation. |
+| `RecessionModel.predict()` / `InflationModel.predict()` guard against `None` pipeline | Calling predict before train previously raised `AttributeError` with no useful message. |
+| HMM trained only on pre-2020 data (`TRAIN_END = "2019-12-31"`) | Training on the full sequence meant post-2019 regime labels were in-sample. Model now trains on 1980–2019; `predict()` runs on full history for out-of-sample evaluation post-2020. |
+| Schema file wrapped in `try/except FileNotFoundError` at import | Module-level `read_text()` with no guard raised an opaque `FileNotFoundError` on cold start with a missing file. |
+
+**High-priority model methodology fixes:**
+
+| Fix | Rationale |
+|-----|-----------|
+| `CalibratedClassifierCV` now uses `TimeSeriesSplit(n_splits=5)` | Default random k-fold cross-validation allows future months to appear in training folds. `TimeSeriesSplit` enforces temporal ordering — training folds always precede validation folds. |
+| Recession training trimmed by 6-month forecast horizon | Target is `USREC.shift(-6)`. The last 6 months of training used COVID-era targets (post-cutoff); training cutoff now adjusted to `TRAIN_END - 6 months` to prevent that leakage. |
+| HMM state labeling uses `model.means_[:, 0]` (emission means) | Re-predicting on training data to obtain mean CPI per state was circular — state indices can shift between runs. Using learned Gaussian means is deterministic, interpretable, and independent of any prediction call. |
+| Inflation risk normalization guards against zero range | `(val - min) / (max - min)` raises `ZeroDivisionError` when all values are identical (e.g., constant series during testing). Falls back to 0.5. |
+
+**UI hardening:**
+
+| Fix | Rationale |
+|-----|-----------|
+| `refresh_all_data()` wraps pipeline in `try/except`; `st.status` transitions to `state="error"` | Pipeline failures previously left the spinner hanging indefinitely. |
+| Deep-dive pages (`1_Recession_Model`, `2_Inflation_Model`) call `st.stop()` on empty data | `iloc[0]` / `.iloc[-1]` on empty DataFrames raised `IndexError` with no user-facing message. |
+| `json.loads()` on `inflation_probs` guarded against `NULL` values | Non-US composite rows store `NULL` in that column; `json.loads(None)` raises `TypeError`. |
+
+**Medium and low priority hardening (second pass):**
+
+| Fix | File(s) | Rationale |
+|-----|---------|-----------|
+| `str \| None` type hints on nullable params | `data/store.py` | `read_indicators()` and `read_model_outputs()` accepted `None` but declared `str` — misleading for any type-checker or reader. |
+| Unified `_to_timestamp()` date normalizer | `data/ingest.py` | FRED returned tz-aware `DatetimeIndex` with time components; World Bank dates were plain year strings. Both now pass through `_to_timestamp()` which strips timezone and normalizes to midnight before DB insertion — one canonical path instead of two ad-hoc patterns. |
+| Failed FRED series surfaced in the UI | `data/ingest.py`, `Dashboard.py` | `fetch_fred_series()` now returns `(DataFrame, failed_series_list)`. `run_pipeline()` propagates the list. `refresh_all_data()` shows a `st.warning` naming any missing series, so a partial fetch is visible to the operator rather than silently producing an incomplete model. |
+| DDL skipped on repeat connections | `data/store.py` | `CREATE TABLE IF NOT EXISTS` is idempotent but added measurable overhead per connection. A module-level `_schema_applied_for` string tracks which DB path has been initialised; DDL runs only once per process. |
+| World Bank retry on HTTP 429 | `data/ingest.py` | Public API rate-limits with 429. Added exponential backoff (1 s, 2 s) for up to 3 attempts before propagating the error — eliminates transient failures during demo. |
+| `print()` replaced with `logging` | `data/ingest.py`, `models/*.py`, `Dashboard.py` | `print()` bypasses Python's logging infrastructure — no timestamps, no severity levels, no ability to suppress in tests. All pipeline output now uses `logging.getLogger(__name__)`. `Dashboard.py` calls `basicConfig` at startup so logs appear in the Streamlit terminal. |
+| Test mock updated with `status_code` | `tests/test_ingest.py` | The World Bank retry logic reads `resp.status_code`; the existing `_MockResponse` fixture lacked the attribute, causing 5 test failures after the retry fix. Added `status_code = 200` default. |

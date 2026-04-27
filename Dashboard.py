@@ -2,6 +2,7 @@
 Global Economic Risk Monitor — Main Dashboard
 """
 
+import logging
 import os
 import streamlit as st
 import json
@@ -9,6 +10,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 from data.store import data_is_stale, read_model_outputs, read_indicators, read_indicators_multi
 from data.ingest import run_pipeline
@@ -107,15 +110,26 @@ def load_nber_recessions() -> list[dict]:
 
 def refresh_all_data():
     with st.status("Refreshing data...", expanded=True) as status:
-        st.write(":material/download: Fetching from FRED and World Bank...")
-        run_pipeline()
-        st.write(":material/psychology: Running recession model...")
-        RecessionModel().run()
-        st.write(":material/bar_chart: Running inflation model...")
-        InflationModel().run()
-        st.write(":material/public: Scoring multi-country composite risk...")
-        run_composite()
-        status.update(label="Refresh complete!", state="complete", expanded=False)
+        try:
+            st.write(":material/download: Fetching from FRED and World Bank...")
+            failed_series = run_pipeline()
+            if failed_series:
+                st.warning(
+                    f"Could not fetch {len(failed_series)} FRED series: "
+                    f"{', '.join(failed_series)}. Results may be incomplete.",
+                    icon=":material/warning:",
+                )
+            st.write(":material/psychology: Running recession model...")
+            RecessionModel().run()
+            st.write(":material/bar_chart: Running inflation model...")
+            InflationModel().run()
+            st.write(":material/public: Scoring multi-country composite risk...")
+            run_composite()
+            status.update(label="Refresh complete!", state="complete", expanded=False)
+        except Exception as exc:
+            status.update(label=f"Refresh failed: {exc}", state="error", expanded=True)
+            st.exception(exc)
+            return
     st.cache_data.clear()
     st.rerun()
 

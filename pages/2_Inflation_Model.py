@@ -46,10 +46,17 @@ def load_data():
 
 inf_out, cpi_yoy, core_yoy, pce_yoy, mich = load_data()
 
-# Parse probabilities once
+if inf_out.empty:
+    st.error(
+        "No inflation model outputs found. Return to the dashboard and click **Refresh Data** to run the pipeline.",
+        icon=":material/error:",
+    )
+    st.stop()
+
+# Parse probabilities once — guard against NULL inflation_probs (non-US composite rows)
 prob_cols = {"low": [], "moderate": [], "high": []}
 for probs_json in inf_out["inflation_probs"]:
-    p = json.loads(probs_json)
+    p = json.loads(probs_json) if probs_json else {"low": 0.0, "moderate": 0.0, "high": 0.0}
     for k in prob_cols:
         prob_cols[k].append(p.get(k, 0.0))
 inf_out["prob_low"]      = prob_cols["low"]

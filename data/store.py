@@ -3,17 +3,33 @@
 import time
 import duckdb
 import pandas as pd
+from contextlib import contextmanager
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "economic_risk.db"
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
-_SCHEMA_SQL: str = SCHEMA_PATH.read_text()
+
+try:
+    _SCHEMA_SQL: str = SCHEMA_PATH.read_text()
+except FileNotFoundError:
+    raise RuntimeError(f"Schema file not found: {SCHEMA_PATH}. Ensure schema.sql exists in the data/ directory.")
+
+# Track which DB file has had its schema initialised to avoid re-running DDL on every connection.
+_schema_applied_for: str | None = None
 
 
-def get_connection() -> duckdb.DuckDBPyConnection:
+@contextmanager
+def get_connection():
+    """Context manager that opens a DuckDB connection, runs DDL on first use, and guarantees close on exit."""
+    global _schema_applied_for
     conn = duckdb.connect(str(DB_PATH))
-    conn.execute(_SCHEMA_SQL)
-    return conn
+    if _schema_applied_for != str(DB_PATH):
+        conn.execute(_SCHEMA_SQL)
+        _schema_applied_for = str(DB_PATH)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def upsert_indicators(df: pd.DataFrame) -> None:
@@ -54,7 +70,7 @@ def read_indicators_multi(country_code: str, series_ids: list[str]) -> dict[str,
     return result
 
 
-def read_indicators(country_code: str = None, series_id: str = None) -> pd.DataFrame:
+def read_indicators(country_code: str | None = None, series_id: str | None = None) -> pd.DataFrame:
     query = "SELECT * FROM indicators WHERE 1=1"
     params = []
     if country_code:
@@ -68,7 +84,7 @@ def read_indicators(country_code: str = None, series_id: str = None) -> pd.DataF
         return conn.execute(query, params).df()
 
 
-def read_model_outputs(country_code: str = None, model_name: str = None) -> pd.DataFrame:
+def read_model_outputs(country_code: str | None = None, model_name: str | None = None) -> pd.DataFrame:
     query = "SELECT * FROM model_outputs WHERE 1=1"
     params = []
     if country_code:

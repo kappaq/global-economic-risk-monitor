@@ -8,6 +8,7 @@ Output    : Per-date probability of being in each regime + most likely state
 """
 
 import json
+import logging
 import numpy as np
 import pandas as pd
 from hmmlearn.hmm import GaussianHMM
@@ -15,9 +16,12 @@ from hmmlearn.hmm import GaussianHMM
 from data.store import read_indicators, upsert_model_outputs
 from models.base import BaseRiskModel
 
+logger = logging.getLogger(__name__)
+
 MODEL_NAME = "inflation"
 N_STATES = 3
 RANDOM_STATE = 42
+TRAIN_END = "2019-12-31"
 
 
 class InflationModel(BaseRiskModel):
@@ -46,7 +50,9 @@ class InflationModel(BaseRiskModel):
         return df
 
     def train(self, features: pd.DataFrame) -> None:
-        X = features.values
+        # Train only on pre-2020 data so post-2019 predictions are out-of-sample
+        train_features = features[features.index <= TRAIN_END]
+        X = train_features.values
         self.model = GaussianHMM(
             n_components=N_STATES,
             covariance_type="full",
@@ -54,23 +60,25 @@ class InflationModel(BaseRiskModel):
             random_state=RANDOM_STATE,
         )
         self.model.fit(X)
-        self._label_states(features)
+        self._label_states()
 
-    def _label_states(self, features: pd.DataFrame) -> None:
-        """Map HMM state indices to Low/Moderate/High by mean CPI YoY."""
-        states = self.model.predict(features.values)
-        mean_cpi = {}
-        for s in range(N_STATES):
-            mask = states == s
-            mean_cpi[s] = features.loc[mask, "cpi_yoy"].mean() if mask.any() else 0.0
+    def _label_states(self) -> None:
+        """Map HMM state indices to Low/Moderate/High using emission means (model.means_).
 
-        sorted_states = sorted(mean_cpi, key=mean_cpi.get)
+        Uses the learned Gaussian means directly instead of re-predicting on training data,
+        which avoids circular state assignment and is more numerically stable.
+        Feature order: [cpi_yoy, core_cpi_yoy, pce_yoy, inflation_expectations].
+        """
+        # means_ shape: (n_components, n_features); index 0 = cpi_yoy
+        cpi_means = {s: float(self.model.means_[s, 0]) for s in range(N_STATES)}
+        sorted_states = sorted(cpi_means, key=cpi_means.get)
         labels = ["low", "moderate", "high"]
         self.state_labels = {state: label for state, label in zip(sorted_states, labels)}
 
     def predict(self, features: pd.DataFrame) -> pd.DataFrame:
+        if self.model is None:
+            raise RuntimeError("InflationModel has not been trained. Call train() or run() first.")
         X = features.values
-        # Posterior state probabilities via Viterbi forward-backward
         # Smoothed posterior state probabilities via forward-backward algorithm
         log_probs = self.model.predict_proba(X)
 
@@ -91,16 +99,20 @@ class InflationModel(BaseRiskModel):
         return pd.DataFrame(rows).set_index("date")
 
     def run(self) -> pd.DataFrame:
-        print("  Building inflation features...")
+        logger.info("Building inflation features...")
         features = self.build_features()
-        print(f"  Training HMM on {len(features)} months of data...")
+        logger.info("Training HMM on %d months of data...", len(features))
         self.train(features)
-        print("  Generating regime probabilities...")
+        logger.info("Generating regime probabilities...")
         preds = self.predict(features)
 
         # Composite inflation risk: weighted toward high-inflation regime
         inflation_risk = preds["prob_moderate"] * 0.4 + preds["prob_high"] * 1.0
-        inflation_risk = (inflation_risk - inflation_risk.min()) / (inflation_risk.max() - inflation_risk.min())
+        _range = inflation_risk.max() - inflation_risk.min()
+        if _range > 0:
+            inflation_risk = (inflation_risk - inflation_risk.min()) / _range
+        else:
+            inflation_risk = pd.Series(0.5, index=inflation_risk.index)
 
         output = pd.DataFrame({
             "country_code":   "USA",
@@ -112,7 +124,7 @@ class InflationModel(BaseRiskModel):
             "composite_risk":  inflation_risk.values,
         })
         upsert_model_outputs(output)
-        print(f"  Stored {len(output)} inflation regime estimates.")
+        logger.info("Stored %d inflation regime estimates.", len(output))
         return preds
 
     @staticmethod
@@ -121,6 +133,7 @@ class InflationModel(BaseRiskModel):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     model = InflationModel()
     preds = model.run()
     print("\nLatest inflation regime probabilities:")

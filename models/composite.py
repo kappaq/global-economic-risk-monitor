@@ -5,10 +5,13 @@ to produce a [0,1] risk scalar suitable for the choropleth map.
 Each indicator is z-score normalized against the country's own history.
 """
 
+import logging
 import numpy as np
 import pandas as pd
 
 from data.store import read_indicators, upsert_model_outputs
+
+logger = logging.getLogger(__name__)
 
 COUNTRIES = ["GBR", "DEU", "JPN"]
 MODEL_NAME = "composite"
@@ -83,17 +86,18 @@ def score_country(country_code: str) -> pd.DataFrame:
 
 
 def run() -> None:
-    print("  Scoring multi-country composite risk...")
+    logger.info("Scoring multi-country composite risk...")
     frames = []
     for country in COUNTRIES:
         df = score_country(country)
         if not df.empty:
             frames.append(df)
-            print(f"  {country}: {len(df)} annual data points scored.")
+            logger.info("%s: %d annual data points scored.", country, len(df))
     if frames:
         upsert_model_outputs(pd.concat(frames, ignore_index=True))
-    print("  Multi-country scoring complete.")
+    logger.info("Multi-country scoring complete.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     run()

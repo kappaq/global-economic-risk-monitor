@@ -37,6 +37,13 @@ def load_data():
 
 rec_out, nber, t10y2, t10y3, unemp, indpro = load_data()
 
+if rec_out.empty:
+    st.error(
+        "No recession model outputs found. Return to the dashboard and click **Refresh Data** to run the pipeline.",
+        icon=":material/error:",
+    )
+    st.stop()
+
 # Build recession period list
 nber_periods = []
 start = None

@@ -9,15 +9,19 @@ Training  : 1985-2019  |  Evaluation window: 2020-present
 """
 
 import json
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 
 from data.store import read_indicators, upsert_model_outputs
 from models.base import BaseRiskModel
+
+logger = logging.getLogger(__name__)
 
 TRAIN_END = "2019-12-31"
 FORECAST_HORIZON_MONTHS = 6
@@ -61,12 +65,16 @@ class RecessionModel(BaseRiskModel):
         return df.dropna()
 
     def train(self, features: pd.DataFrame) -> None:
-        train = features[features.index <= TRAIN_END]
+        # Trim 6 months from training end to prevent target leakage across the boundary
+        horizon_adj = pd.Timestamp(TRAIN_END) - pd.DateOffset(months=FORECAST_HORIZON_MONTHS)
+        train = features[features.index <= horizon_adj]
         X = train[self._feature_cols()]
         y = train["target"].astype(int)
 
+        # TimeSeriesSplit respects temporal order — no future data bleeds into folds
+        tscv = TimeSeriesSplit(n_splits=5)
         base = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
-        calibrated = CalibratedClassifierCV(base, method="isotonic", cv=5)
+        calibrated = CalibratedClassifierCV(base, method="isotonic", cv=tscv)
         self.pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("model", calibrated),
@@ -74,6 +82,8 @@ class RecessionModel(BaseRiskModel):
         self.pipeline.fit(X, y)
 
     def predict(self, features: pd.DataFrame) -> pd.DataFrame:
+        if self.pipeline is None:
+            raise RuntimeError("RecessionModel has not been trained. Call train() or run() first.")
         X = features[self._feature_cols()]
         probs = self.pipeline.predict_proba(X)[:, 1]
         return pd.DataFrame({
@@ -82,11 +92,12 @@ class RecessionModel(BaseRiskModel):
         }).set_index("date")
 
     def run(self) -> pd.DataFrame:
-        print("  Building recession features...")
+        logger.info("Building recession features...")
         features = self.build_features()
-        print(f"  Training on {(features.index <= TRAIN_END).sum()} months (1985–2019)...")
+        n_train = (features.index <= TRAIN_END).sum()
+        logger.info("Training on %d months (1985–2019)...", n_train)
         self.train(features)
-        print("  Generating predictions...")
+        logger.info("Generating predictions...")
         preds = self.predict(features)
 
         output = pd.DataFrame({
@@ -99,7 +110,7 @@ class RecessionModel(BaseRiskModel):
             "composite_risk":  preds["recession_prob"].values,
         })
         upsert_model_outputs(output)
-        print(f"  Stored {len(output)} recession probability estimates.")
+        logger.info("Stored %d recession probability estimates.", len(output))
         return preds
 
     @staticmethod
@@ -111,8 +122,8 @@ class RecessionModel(BaseRiskModel):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     model = RecessionModel()
     preds = model.run()
-    latest = preds.tail(3)
     print("\nLatest recession probabilities:")
-    print(latest.to_string())
+    print(preds.tail(3).to_string())
