@@ -106,14 +106,13 @@ def refresh_all_data():
 st.title(":material/public: Global Economic Risk Monitor")
 st.caption("Probabilistic recession and inflation risk — United States, United Kingdom, Germany, Japan")
 
-col_btn, col_warn = st.columns([1, 5])
+col_btn, col_warn, _ = st.columns([1, 2, 3])
 with col_btn:
     if st.button(":material/refresh: Refresh Data", use_container_width=True, key="refresh_btn"):
         refresh_all_data()
 with col_warn:
     if data_is_stale():
-        st.warning("Data may be outdated — click Refresh to fetch the latest indicators.",
-                   icon=":material/warning:")
+        st.warning("Data may be outdated — click Refresh.", icon=":material/warning:")
 
 st.divider()
 
