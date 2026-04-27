@@ -72,6 +72,31 @@ def load_map_data() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def load_country_indicators(country_code: str) -> dict:
+    """Load available indicators for any country from DuckDB."""
+    def _get(series_id):
+        df = read_indicators(country_code=country_code, series_id=series_id)
+        if df.empty:
+            return None
+        df["date"] = pd.to_datetime(df["date"])
+        return df.set_index("date")["value"].sort_index()
+
+    if country_code == "USA":
+        return {
+            "T10Y2Y":   _get("T10Y2Y"),
+            "T10Y3M":   _get("T10Y3M"),
+            "UNRATE":   _get("UNRATE"),
+            "INDPRO":   _get("INDPRO"),
+            "CPIAUCSL": _get("CPIAUCSL"),
+            "VIXCLS":   _get("VIXCLS"),
+        }
+    return {
+        "GDP Growth":   _get("NY.GDP.MKTP.KD.ZG"),
+        "CPI Inflation": _get("FP.CPI.TOTL.ZG"),
+        "Unemployment": _get("SL.UEM.TOTL.ZS"),
+    }
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_nber_recessions() -> list[dict]:
     df = read_indicators(country_code="USA", series_id="USREC")
     df["date"] = pd.to_datetime(df["date"])
@@ -186,6 +211,86 @@ with right:
                         f"Recession: **{row['recession_prob']:.0%}** · "
                         f"Inflation: **{str(row['inflation_state']).capitalize()}**"
                     )
+
+st.divider()
+
+# ── Country drill-down ────────────────────────────────────────────────────────
+
+sel = st.session_state.selected_country
+meta = COUNTRY_META.get(sel, {})
+indicators = load_country_indicators(sel)
+model_row = map_data[map_data["country_code"] == sel].iloc[0] if not map_data.empty and sel in map_data["country_code"].values else None
+
+st.subheader(f":material/pin_drop: {meta.get('flag','')} {meta.get('name', sel)} — Detail View")
+st.caption("Click any country on the map above to switch the detail view.")
+
+if model_row is not None:
+    with st.container(border=True):
+        kc1, kc2, kc3 = st.columns(3)
+        risk = model_row["composite_risk"]
+        icon = ":material/dangerous:" if risk > 0.65 else (":material/warning:" if risk > 0.35 else ":material/check_circle:")
+        kc1.metric(f"{icon} Composite Risk",    f"{risk:.0%}")
+        kc2.metric(":material/trending_down: Recession Risk", f"{model_row['recession_prob']:.0%}")
+        kc3.metric(":material/trending_up: Inflation Regime", str(model_row["inflation_state"]).capitalize())
+
+if sel == "USA":
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        with st.container(border=True):
+            st.markdown("**Yield Curve Spreads**")
+            fig_d1 = go.Figure()
+            nber_periods = load_nber_recessions()
+            for p in nber_periods:
+                fig_d1.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey", opacity=0.12, line_width=0)
+            fig_d1.add_hline(y=0, line_dash="dot", line_color="black", opacity=0.3)
+            if indicators.get("T10Y2Y") is not None:
+                s = indicators["T10Y2Y"].resample("MS").mean()
+                fig_d1.add_trace(go.Scatter(x=s.index, y=s.values, name="10Y-2Y",
+                                            line=dict(color="#457B9D", width=1.5)))
+            if indicators.get("T10Y3M") is not None:
+                s = indicators["T10Y3M"].resample("MS").mean()
+                fig_d1.add_trace(go.Scatter(x=s.index, y=s.values, name="10Y-3M",
+                                            line=dict(color="#F4A261", width=1.5, dash="dash")))
+            fig_d1.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0),
+                                 yaxis_title="Spread (%)", legend=dict(orientation="h", y=1.12))
+            st.plotly_chart(fig_d1, use_container_width=True)
+
+    with col_d2:
+        with st.container(border=True):
+            st.markdown("**Unemployment & Industrial Production**")
+            fig_d2 = go.Figure()
+            for p in nber_periods:
+                fig_d2.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey", opacity=0.12, line_width=0)
+            if indicators.get("UNRATE") is not None:
+                s = indicators["UNRATE"].resample("MS").last()
+                fig_d2.add_trace(go.Scatter(x=s.index, y=s.values, name="Unemployment %",
+                                            line=dict(color="#E63946", width=1.5)))
+            fig_d2.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0),
+                                 yaxis_title="Rate (%)", legend=dict(orientation="h", y=1.12))
+            st.plotly_chart(fig_d2, use_container_width=True)
+
+else:
+    col_d1, col_d2, col_d3 = st.columns(3)
+    chart_cfg = [
+        ("GDP Growth",    col_d1, "#2DC653", "GDP Growth Rate (%)"),
+        ("CPI Inflation", col_d2, "#E63946", "CPI Inflation (%)"),
+        ("Unemployment",  col_d3, "#457B9D", "Unemployment (%)"),
+    ]
+    for label, col, color, ytitle in chart_cfg:
+        series = indicators.get(label)
+        if series is None:
+            continue
+        with col:
+            with st.container(border=True):
+                st.markdown(f"**{label}**")
+                fig_d = go.Figure()
+                fig_d.add_trace(go.Scatter(x=series.index, y=series.values,
+                                           mode="lines+markers",
+                                           line=dict(color=color, width=2),
+                                           marker=dict(size=5)))
+                fig_d.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0),
+                                    yaxis_title=ytitle, showlegend=False)
+                st.plotly_chart(fig_d, use_container_width=True)
 
 st.divider()
 
