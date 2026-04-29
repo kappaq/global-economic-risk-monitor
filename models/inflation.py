@@ -75,6 +75,41 @@ class InflationModel(BaseRiskModel):
         labels = ["low", "moderate", "high"]
         self.state_labels = {state: label for state, label in zip(sorted_states, labels)}
 
+        low_mean  = cpi_means[sorted_states[0]]
+        mid_mean  = cpi_means[sorted_states[1]]
+        high_mean = cpi_means[sorted_states[2]]
+
+        logger.info(
+            "HMM state emission means — low: %.2f%% CPI, moderate: %.2f%% CPI, high: %.2f%% CPI",
+            low_mean, mid_mean, high_mean,
+        )
+
+        # The high state should clearly exceed the Fed target — training data includes the
+        # 1980s when CPI peaked at ~14%, so anything below 3.5% suggests state collapse.
+        if high_mean < 3.5:
+            raise RuntimeError(
+                f"HMM 'high' state has a CPI YoY mean of {high_mean:.2f}% — below the 3.5% sanity "
+                f"threshold. States may have collapsed or training data is insufficient. "
+                f"All means: low={low_mean:.2f}%, moderate={mid_mean:.2f}%, high={high_mean:.2f}%."
+            )
+
+        # The low state should sit at or below the Fed target range.
+        if low_mean > 3.0:
+            raise RuntimeError(
+                f"HMM 'low' state has a CPI YoY mean of {low_mean:.2f}% — above 3.0%. "
+                f"The model has not captured a genuine low-inflation regime (Great Moderation). "
+                f"All means: low={low_mean:.2f}%, moderate={mid_mean:.2f}%, high={high_mean:.2f}%."
+            )
+
+        # Adjacent states must be meaningfully separated; < 1% gap signals near-degenerate states.
+        if (mid_mean - low_mean) < 1.0 or (high_mean - mid_mean) < 1.0:
+            raise RuntimeError(
+                f"HMM states are not sufficiently separated (need ≥ 1% CPI gap between adjacent "
+                f"states). States may have collapsed. "
+                f"All means: low={low_mean:.2f}%, moderate={mid_mean:.2f}%, high={high_mean:.2f}%. "
+                f"Try increasing n_iter or re-running with a different random_state."
+            )
+
     def predict(self, features: pd.DataFrame) -> pd.DataFrame:
         if self.model is None:
             raise RuntimeError("InflationModel has not been trained. Call train() or run() first.")
