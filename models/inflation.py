@@ -53,14 +53,52 @@ class InflationModel(BaseRiskModel):
         # Train only on pre-2020 data so post-2019 predictions are out-of-sample
         train_features = features[features.index <= TRAIN_END]
         X = train_features.values
-        self.model = GaussianHMM(
-            n_components=N_STATES,
-            covariance_type="full",
-            n_iter=200,
-            random_state=RANDOM_STATE,
-        )
-        self.model.fit(X)
+
+        # HMM Baum-Welch can land in local optima where two states collapse into one.
+        # Try up to MAX_SEEDS initializations and keep the highest-likelihood model
+        # whose emission means satisfy the three separation checks.
+        MAX_SEEDS = 30
+        best_model, best_score = None, -np.inf
+        for seed in range(MAX_SEEDS):
+            candidate = GaussianHMM(
+                n_components=N_STATES,
+                covariance_type="full",
+                n_iter=200,
+                random_state=seed,
+            )
+            candidate.fit(X)
+            score = candidate.score(X)
+            if score <= best_score:
+                continue
+            low, mid, high = self._sorted_cpi_means(candidate)
+            if not self._means_are_valid(low, mid, high):
+                logger.debug("Seed %d rejected (score=%.1f): means low=%.2f mid=%.2f high=%.2f",
+                             seed, score, low, mid, high)
+                continue
+            best_score = score
+            best_model = candidate
+            logger.debug("Seed %d accepted (score=%.1f): means low=%.2f mid=%.2f high=%.2f",
+                         seed, score, low, mid, high)
+
+        if best_model is None:
+            raise RuntimeError(
+                f"HMM could not find well-separated states across {MAX_SEEDS} random seeds. "
+                "Check that training data covers sufficient historical CPI variation."
+            )
+
+        logger.info("Best HMM seed selected with log-likelihood %.2f.", best_score)
+        self.model = best_model
         self._label_states()
+
+    @staticmethod
+    def _sorted_cpi_means(model: GaussianHMM) -> tuple[float, float, float]:
+        """Return (low, mid, high) CPI YoY emission means sorted ascending."""
+        means = sorted(float(model.means_[s, 0]) for s in range(N_STATES))
+        return means[0], means[1], means[2]
+
+    @staticmethod
+    def _means_are_valid(low: float, mid: float, high: float) -> bool:
+        return high >= 3.5 and low <= 3.0 and (mid - low) >= 1.0 and (high - mid) >= 1.0
 
     def _label_states(self) -> None:
         """Map HMM state indices to Low/Moderate/High using emission means (model.means_).
