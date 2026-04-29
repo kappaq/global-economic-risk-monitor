@@ -230,7 +230,7 @@ indicators = load_country_indicators(sel)
 _filtered = map_data[map_data["country_code"] == sel] if not map_data.empty else pd.DataFrame()
 model_row = _filtered.iloc[0] if not _filtered.empty else None
 
-st.subheader(f":material/pin_drop: {meta.get('flag','')} {meta.get('name', sel)} — Detail View")
+st.subheader(f":material/pin_drop: {meta.get('name', sel)} — Detail View")
 st.caption("Click any country on the map above to switch the detail view.")
 
 if model_row is not None:
