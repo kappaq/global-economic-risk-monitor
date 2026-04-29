@@ -19,11 +19,11 @@ _schema_applied_for: str | None = None
 
 
 @contextmanager
-def get_connection():
-    """Context manager that opens a DuckDB connection, runs DDL on first use, and guarantees close on exit."""
+def get_connection(read_only: bool = False):
+    """Open a DuckDB connection. Read-only connections use shared locks (safe for concurrent access)."""
     global _schema_applied_for
-    conn = duckdb.connect(str(DB_PATH))
-    if _schema_applied_for != str(DB_PATH):
+    conn = duckdb.connect(str(DB_PATH), read_only=read_only)
+    if not read_only and _schema_applied_for != str(DB_PATH):
         conn.execute(_SCHEMA_SQL)
         _schema_applied_for = str(DB_PATH)
     try:
@@ -60,7 +60,7 @@ def read_indicators_multi(country_code: str, series_ids: list[str]) -> dict[str,
         WHERE country_code = ? AND series_id IN ({placeholders})
         ORDER BY date
     """
-    with get_connection() as conn:
+    with get_connection(read_only=True) as conn:
         df = conn.execute(query, [country_code] + series_ids).df()
     result = {}
     for sid, grp in df.groupby("series_id"):
@@ -80,7 +80,7 @@ def read_indicators(country_code: str | None = None, series_id: str | None = Non
         query += " AND series_id = ?"
         params.append(series_id)
     query += " ORDER BY date"
-    with get_connection() as conn:
+    with get_connection(read_only=True) as conn:
         return conn.execute(query, params).df()
 
 
@@ -94,12 +94,12 @@ def read_model_outputs(country_code: str | None = None, model_name: str | None =
         query += " AND model_name = ?"
         params.append(model_name)
     query += " ORDER BY date"
-    with get_connection() as conn:
+    with get_connection(read_only=True) as conn:
         return conn.execute(query, params).df()
 
 
 def latest_indicator_date(country_code: str = "USA") -> pd.Timestamp | None:
-    with get_connection() as conn:
+    with get_connection(read_only=True) as conn:
         result = conn.execute(
             "SELECT MAX(date) FROM indicators WHERE country_code = ?", [country_code]
         ).fetchone()

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
-from data.store import data_is_stale, read_model_outputs, read_indicators, read_indicators_multi
+from data.store import data_is_stale, read_model_outputs, read_indicators_multi
 from data.ingest import run_pipeline
 from models.recession import RecessionModel
 from models.inflation import InflationModel
@@ -80,10 +80,6 @@ def load_map_data() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_country_indicators(country_code: str) -> dict:
-    """Fetch all indicators for a country in one DB query."""
-    if country_code == "USA":
-        series_ids = ["T10Y2Y", "T10Y3M", "UNRATE", "INDPRO", "CPIAUCSL", "VIXCLS"]
-        return read_indicators_multi("USA", series_ids)
     wb_ids = ["NY.GDP.MKTP.KD.ZG", "FP.CPI.TOTL.ZG", "SL.UEM.TOTL.ZS"]
     raw = read_indicators_multi(country_code, wb_ids)
     return {
@@ -91,20 +87,6 @@ def load_country_indicators(country_code: str) -> dict:
         "CPI Inflation": raw.get("FP.CPI.TOTL.ZG"),
         "Unemployment":  raw.get("SL.UEM.TOTL.ZS"),
     }
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_nber_recessions() -> list[dict]:
-    df = read_indicators(country_code="USA", series_id="USREC")
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date")
-    periods, start = [], None
-    for _, row in df.iterrows():
-        if row["value"] == 1 and start is None:
-            start = row["date"]
-        elif row["value"] != 1 and start is not None:
-            periods.append({"start": start, "end": row["date"]})
-            start = None
-    return periods
 
 # ── Actions ───────────────────────────────────────────────────────────────────
 
@@ -153,7 +135,6 @@ st.divider()
 map_data      = load_map_data()
 recession_df  = load_recession_outputs()
 inflation_df  = load_inflation_outputs()
-nber_periods  = load_nber_recessions()
 
 left, right = st.columns([3, 2])
 
@@ -214,9 +195,19 @@ with right:
                     st.markdown(f"###  {row['country_code']}")
                     st.caption(meta.get("name", ""))
                 with c2:
-                    st.metric("Composite Risk", f"{risk:.0%}")
+                    _is_usa = row["country_code"] == "USA"
+                    _comp_help = (
+                        "0.5 × P(recession next 6 months) + 0.5 × P(high inflation regime). "
+                        "Mixed horizon: recession component is 6-month forward; inflation component is current-state. "
+                        "Not independently calibrated."
+                        if _is_usa else
+                        "Normalized stress index: 0.4 × GDP stress + 0.4 × CPI stress + 0.2 × unemployment stress. "
+                        "Each component z-scored against own history, min-max scaled to [0–1]. Not a probability."
+                    )
+                    st.metric("Composite Risk", f"{risk:.0%}", help=_comp_help)
+                    _rec_label = "Recession" if _is_usa else "Recession Stress"
                     st.caption(
-                        f"Recession: **{row['recession_prob']:.0%}** · "
+                        f"{_rec_label}: **{row['recession_prob']:.0%}** · "
                         f"Inflation: **{str(row['inflation_state']).capitalize()}**"
                     )
 
@@ -238,161 +229,41 @@ if model_row is not None:
         kc1, kc2, kc3 = st.columns(3)
         risk = model_row["composite_risk"]
         icon = ":material/dangerous:" if risk > 0.65 else (":material/warning:" if risk > 0.35 else ":material/check_circle:")
-        kc1.metric(f"{icon} Composite Risk",    f"{risk:.0%}")
-        kc2.metric(":material/trending_down: Recession Risk", f"{model_row['recession_prob']:.0%}")
-        kc3.metric(":material/trending_up: Inflation Regime", str(model_row["inflation_state"]).capitalize())
+        if sel == "USA":
+            _comp_help  = "0.5 × P(recession next 6 months) + 0.5 × P(high inflation regime). Mixed horizon: recession is 6-month forward; inflation is current-state. Not independently calibrated."
+            _rec_label  = ":material/trending_down: Recession Probability"
+            _rec_help   = "P(NBER recession begins within the next 6 months). Calibrated logistic regression with isotonic calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit), trained Jan 1985–Dec 2019. Post-2020 is out-of-sample. Point estimate — no confidence interval shown."
+            _inf_help   = "Most probable latent state from the Gaussian HMM (3 states), labelled by learned CPI emission means. Current-state estimate only — not a forward forecast."
+        else:
+            _comp_help  = "Normalized stress index: 0.4 × GDP stress + 0.4 × CPI stress + 0.2 × unemployment stress. Each component z-scored against own history, min-max scaled to [0–1]. Not a probability — not calibrated against any ground truth."
+            _rec_label  = ":material/trending_down: Recession Stress Score"
+            _rec_help   = "Not a probability. Inverted GDP growth z-scored against this country's own history, min-max scaled to [0–1]. Higher = weaker growth relative to historical average. No model training or calibration applied."
+            _inf_help   = "Rule-based threshold on World Bank annual CPI: < 2% = Low, 2–4% = Moderate, > 4% = High. Deterministic — no model or calibration."
+        kc1.metric(f"{icon} Composite Risk", f"{risk:.0%}", help=_comp_help)
+        kc2.metric(_rec_label, f"{model_row['recession_prob']:.0%}", help=_rec_help)
+        kc3.metric(":material/trending_up: Inflation Regime", str(model_row["inflation_state"]).capitalize(), help=_inf_help)
 
-if sel == "USA":
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
+col_d1, col_d2, col_d3 = st.columns(3)
+chart_cfg = [
+    ("GDP Growth",    col_d1, "#2DC653", "GDP Growth Rate (%)"),
+    ("CPI Inflation", col_d2, "#E63946", "CPI Inflation (%)"),
+    ("Unemployment",  col_d3, "#457B9D", "Unemployment (%)"),
+]
+for label, col, color, ytitle in chart_cfg:
+    series = indicators.get(label)
+    if series is None:
+        continue
+    with col:
         with st.container(border=True):
-            st.markdown("**Yield Curve Spreads**")
-            fig_d1 = go.Figure()
-            for p in nber_periods:
-                fig_d1.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey", opacity=0.12, line_width=0)
-            fig_d1.add_hline(y=0, line_dash="dot", line_color="black", opacity=0.3)
-            if indicators.get("T10Y2Y") is not None:
-                s = indicators["T10Y2Y"].resample("MS").mean()
-                fig_d1.add_trace(go.Scatter(x=s.index, y=s.values, name="10Y-2Y",
-                                            line=dict(color="#457B9D", width=1.5)))
-            if indicators.get("T10Y3M") is not None:
-                s = indicators["T10Y3M"].resample("MS").mean()
-                fig_d1.add_trace(go.Scatter(x=s.index, y=s.values, name="10Y-3M",
-                                            line=dict(color="#F4A261", width=1.5, dash="dash")))
-            fig_d1.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0),
-                                 yaxis_title="Spread (%)", legend=dict(orientation="h", y=1.12))
-            st.plotly_chart(fig_d1, use_container_width=True)
-
-    with col_d2:
-        with st.container(border=True):
-            st.markdown("**Unemployment & Industrial Production**")
-            fig_d2 = go.Figure()
-            for p in nber_periods:
-                fig_d2.add_vrect(x0=p["start"], x1=p["end"], fillcolor="grey", opacity=0.12, line_width=0)
-            if indicators.get("UNRATE") is not None:
-                s = indicators["UNRATE"].resample("MS").last()
-                fig_d2.add_trace(go.Scatter(x=s.index, y=s.values, name="Unemployment %",
-                                            line=dict(color="#E63946", width=1.5)))
-            fig_d2.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0),
-                                 yaxis_title="Rate (%)", legend=dict(orientation="h", y=1.12))
-            st.plotly_chart(fig_d2, use_container_width=True)
-
-else:
-    col_d1, col_d2, col_d3 = st.columns(3)
-    chart_cfg = [
-        ("GDP Growth",    col_d1, "#2DC653", "GDP Growth Rate (%)"),
-        ("CPI Inflation", col_d2, "#E63946", "CPI Inflation (%)"),
-        ("Unemployment",  col_d3, "#457B9D", "Unemployment (%)"),
-    ]
-    for label, col, color, ytitle in chart_cfg:
-        series = indicators.get(label)
-        if series is None:
-            continue
-        with col:
-            with st.container(border=True):
-                st.markdown(f"**{label}**")
-                fig_d = go.Figure()
-                fig_d.add_trace(go.Scatter(x=series.index, y=series.values,
-                                           mode="lines+markers",
-                                           line=dict(color=color, width=2),
-                                           marker=dict(size=5)))
-                fig_d.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0),
-                                    yaxis_title=ytitle, showlegend=False)
-                st.plotly_chart(fig_d, use_container_width=True)
-
-st.divider()
-
-# ── Time Series Charts ────────────────────────────────────────────────────────
-
-st.subheader(":material/timeline: Model Output — United States")
-
-tab_rec, tab_inf = st.tabs([
-    ":material/trending_down: Recession Probability",
-    ":material/trending_up: Inflation Regime",
-])
-
-with tab_rec:
-    if not recession_df.empty:
-        recession_df["date"] = pd.to_datetime(recession_df["date"])
-        recession_df = recession_df.sort_values("date")
-
-        fig_rec = go.Figure()
-        for i, period in enumerate(nber_periods):
-            fig_rec.add_vrect(
-                x0=period["start"], x1=period["end"],
-                fillcolor="grey", opacity=0.15, line_width=0,
-                annotation_text="NBER Recession" if i == 0 else "",
-                annotation_position="top left",
-            )
-        fig_rec.add_hline(y=0.5, line_dash="dash", line_color="red", opacity=0.5,
-                          annotation_text="50% threshold")
-        fig_rec.add_trace(go.Scatter(
-            x=recession_df["date"],
-            y=recession_df["recession_prob"],
-            mode="lines",
-            name="Recession Probability",
-            line=dict(color="#E63946", width=2),
-            fill="tozeroy",
-            fillcolor="rgba(230,57,70,0.1)",
-        ))
-        fig_rec.update_layout(
-            yaxis=dict(title="P(Recession next 6 months)", tickformat=".0%", range=[0, 1]),
-            xaxis_title="Date",
-            height=340,
-            margin=dict(l=0, r=0, t=30, b=0),
-            legend=dict(orientation="h", y=1.05),
-            modebar=dict(orientation="v", bgcolor="rgba(0,0,0,0)"),
-        )
-        st.plotly_chart(fig_rec, use_container_width=True)
-
-        latest_rec = recession_df.iloc[-1]
-        st.caption(
-            f"**{latest_rec['date'].strftime('%b %Y')}** — "
-            f"P(recession next 6 months) = **{latest_rec['recession_prob']:.1%}**. "
-            f"Model: Calibrated Logistic Regression trained on NBER recessions 1985–2019."
-        )
-
-with tab_inf:
-    if not inflation_df.empty:
-        inflation_df["date"] = pd.to_datetime(inflation_df["date"])
-        inflation_df = inflation_df.sort_values("date")
-
-        prob_cols = {"low": [], "moderate": [], "high": []}
-        for probs_json in inflation_df["inflation_probs"]:
-            probs = json.loads(probs_json)
-            for k in prob_cols:
-                prob_cols[k].append(probs.get(k, 0.0))
-
-        fig_inf = go.Figure()
-        for regime in ["low", "moderate", "high"]:
-            fig_inf.add_trace(go.Scatter(
-                x=inflation_df["date"],
-                y=prob_cols[regime],
-                mode="lines",
-                name=regime.capitalize(),
-                stackgroup="one",
-                line=dict(width=0.5, color=REGIME_COLORS[regime]),
-                fillcolor=REGIME_RGBA[regime],
-            ))
-        fig_inf.update_layout(
-            yaxis=dict(title="Regime Probability", tickformat=".0%", range=[0, 1]),
-            xaxis_title="Date",
-            height=340,
-            margin=dict(l=0, r=0, t=10, b=0),
-            legend=dict(orientation="h", y=1.05),
-        )
-        st.plotly_chart(fig_inf, use_container_width=True)
-
-        latest_inf = inflation_df.iloc[-1]
-        probs_latest = json.loads(latest_inf["inflation_probs"])
-        st.caption(
-            f"**{latest_inf['date'].strftime('%b %Y')}** — "
-            f"Regime = **{latest_inf['inflation_state'].capitalize()}** | "
-            f"Low: {probs_latest.get('low', 0):.0%} · "
-            f"Moderate: {probs_latest.get('moderate', 0):.0%} · "
-            f"High: {probs_latest.get('high', 0):.0%}. "
-            f"Model: Gaussian HMM (3 states) on CPI, Core CPI, PCE, expectations."
-        )
+            st.markdown(f"**{label}**")
+            fig_d = go.Figure()
+            fig_d.add_trace(go.Scatter(x=series.index, y=series.values,
+                                       mode="lines+markers",
+                                       line=dict(color=color, width=2),
+                                       marker=dict(size=5)))
+            fig_d.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0),
+                                yaxis_title=ytitle, showlegend=False)
+            st.plotly_chart(fig_d, use_container_width=True)
 
 st.divider()
 
