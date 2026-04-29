@@ -76,6 +76,12 @@ with st.container(border=True):
         f"{latest['recession_prob']:.1%}",
         delta=f"{latest['recession_prob'] - prev['recession_prob']:+.1%} vs 3 months ago",
         delta_color="inverse",
+        help=(
+            "P(NBER-defined recession begins within the next 6 months). "
+            "Calibrated logistic regression with isotonic calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit). "
+            "Trained Jan 1985–Dec 2019; all post-2020 observations are fully out-of-sample. "
+            "Point estimate — no confidence interval is computed."
+        ),
     )
     c2.metric(":material/show_chart: 10Y–2Y Yield Spread", f"{t10y2.iloc[-1]:.2f}%")
     c3.metric(":material/show_chart: 10Y–3M Yield Spread", f"{t10y3.iloc[-1]:.2f}%")

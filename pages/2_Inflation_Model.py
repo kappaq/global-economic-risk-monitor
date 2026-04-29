@@ -71,10 +71,44 @@ probs_latest = json.loads(latest["inflation_probs"])
 with st.container(border=True):
     c1, c2, c3, c4 = st.columns(4)
     icon = REGIME_ICONS.get(latest["inflation_state"], "")
-    c1.metric(f"{icon} Current Regime", latest["inflation_state"].capitalize())
-    c2.metric(":material/check_circle: P(Low)",     f"{latest['prob_low']:.1%}")
-    c3.metric(":material/warning: P(Moderate)",     f"{latest['prob_moderate']:.1%}")
-    c4.metric(":material/dangerous: P(High)",       f"{latest['prob_high']:.1%}")
+    c1.metric(
+        f"{icon} Current Regime",
+        latest["inflation_state"].capitalize(),
+        help=(
+            "Most probable latent inflation state at this date, from the Gaussian HMM (3 hidden states). "
+            "States are labelled Low / Moderate / High by sorting learned emission means on CPI YoY — "
+            "not by a fixed threshold. Current-state estimate, not a forecast."
+        ),
+    )
+    c2.metric(
+        ":material/check_circle: P(Low)",
+        f"{latest['prob_low']:.1%}",
+        help=(
+            "Smoothed posterior P(current state = Low inflation). "
+            "Estimated via the forward-backward algorithm on the full observation sequence (CPI YoY, Core CPI YoY, PCE YoY, UMich expectations). "
+            "Horizon: current state only — not a forward forecast. "
+            "Not calibrated against external labels (unsupervised model)."
+        ),
+    )
+    c3.metric(
+        ":material/warning: P(Moderate)",
+        f"{latest['prob_moderate']:.1%}",
+        help=(
+            "Smoothed posterior P(current state = Moderate inflation). "
+            "Same forward-backward pass as P(Low). "
+            "Horizon: current state only. Not calibrated."
+        ),
+    )
+    c4.metric(
+        ":material/dangerous: P(High)",
+        f"{latest['prob_high']:.1%}",
+        help=(
+            "Smoothed posterior P(current state = High inflation). "
+            "The HMM learned its transition dynamics from 1980–2019 data; "
+            "the 2021–2023 inflation surge is fully out-of-sample. "
+            "Horizon: current state only. Not calibrated."
+        ),
+    )
 
 st.divider()
 
