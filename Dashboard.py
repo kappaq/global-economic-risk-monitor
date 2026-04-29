@@ -211,7 +211,7 @@ with right:
             with st.container(border=True):
                 c1, c2 = st.columns([1, 2])
                 with c1:
-                    st.markdown(f"### {meta.get('flag','')} {row['country_code']}")
+                    st.markdown(f"###  {row['country_code']}")
                     st.caption(meta.get("name", ""))
                 with c2:
                     st.metric("Composite Risk", f"{risk:.0%}")
