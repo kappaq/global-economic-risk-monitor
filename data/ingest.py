@@ -55,7 +55,7 @@ def _to_timestamp(val) -> pd.Timestamp:
     return ts.normalize()  # strips time component → midnight
 
 
-def fetch_fred_series() -> tuple[pd.DataFrame, list[str]]:
+def fetch_fred_series(retries: int = 3) -> tuple[pd.DataFrame, list[str]]:
     """Fetch all FRED series. Returns (DataFrame, list_of_failed_series_ids)."""
     api_key = os.getenv("FRED_API_KEY")
     if not api_key:
@@ -64,18 +64,26 @@ def fetch_fred_series() -> tuple[pd.DataFrame, list[str]]:
     rows: list[pd.DataFrame] = []
     failed: list[str] = []
     for series_id in FRED_SERIES:
-        logger.info("Fetching FRED: %s", series_id)
-        try:
-            s = fred.get_series(series_id, observation_start=FRED_START)
-            s = s.dropna().reset_index()
-            s.columns = ["date", "value"]
-            s["date"] = s["date"].apply(_to_timestamp)
-            s["country_code"] = "USA"
-            s["series_id"] = series_id
-            rows.append(s[["country_code", "series_id", "date", "value"]])
-        except Exception as exc:
-            logger.warning("Could not fetch %s: %s", series_id, exc)
-            failed.append(series_id)
+        for attempt in range(retries):
+            try:
+                logger.info("Fetching FRED: %s (attempt %d/%d)", series_id, attempt + 1, retries)
+                s = fred.get_series(series_id, observation_start=FRED_START)
+                s = s.dropna().reset_index()
+                s.columns = ["date", "value"]
+                s["date"] = s["date"].apply(_to_timestamp)
+                s["country_code"] = "USA"
+                s["series_id"] = series_id
+                rows.append(s[["country_code", "series_id", "date", "value"]])
+                break
+            except Exception as exc:
+                if attempt < retries - 1:
+                    wait = 2 ** attempt
+                    logger.warning("FRED %s failed (attempt %d/%d): %s — retrying in %ds",
+                                   series_id, attempt + 1, retries, exc, wait)
+                    time.sleep(wait)
+                else:
+                    logger.warning("FRED %s failed after %d attempts: %s", series_id, retries, exc)
+                    failed.append(series_id)
     if not rows:
         raise RuntimeError(
             "Failed to fetch any FRED series. Check FRED_API_KEY and network connectivity."
