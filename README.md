@@ -147,8 +147,22 @@ pytest tests/ -v
 
 ### Inflation Regime
 - **Algorithm**: Gaussian Hidden Markov Model (3 hidden states)
-- **States**: Low (<2%) / Moderate (2–4%) / High (>4%) inflation regimes
+- **States**: Low / Moderate / High — labelled post-training by sorting learned CPI YoY emission means (not fixed thresholds)
 - **Features**: CPI YoY, Core CPI YoY, PCE YoY, 1Y inflation expectations
-- **Output**: Probability of being in each regime per date
+- **Output**: Smoothed posterior probability of being in each regime at each date (forward-backward algorithm)
+- **Robustness**: Training retries up to 30 random seeds and selects the highest-likelihood model whose emission means satisfy separation checks, preventing state collapse
+
+### Probability transparency
+
+Every metric in the app surfaces four dimensions via inline tooltip (`?`):
+
+| Dimension | Example (US recession probability) |
+|---|---|
+| **Probability of what** | P(NBER recession starts within the next 6 months) |
+| **Horizon** | 6-month forward |
+| **Calibrated how** | Isotonic calibration, 5-fold TimeSeriesSplit, trained 1985–2019 |
+| **Uncertainty** | Point estimate — no confidence interval computed |
+
+Non-US "Recession Risk" is labelled **Recession Stress Score** to distinguish it from the US calibrated probability — it is a normalized GDP-growth index, not a model-derived probability.
 
 See [DECISIONS.md](DECISIONS.md) for detailed rationale behind every design choice.

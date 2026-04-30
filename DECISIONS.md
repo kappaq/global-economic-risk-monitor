@@ -170,3 +170,57 @@ A second review pass was run using four specialist AI agents (code-reviewer, dat
 | World Bank retry on HTTP 429 | `data/ingest.py` | Public API rate-limits with 429. Added exponential backoff (1 s, 2 s) for up to 3 attempts before propagating the error — eliminates transient failures during demo. |
 | `print()` replaced with `logging` | `data/ingest.py`, `models/*.py`, `Dashboard.py` | `print()` bypasses Python's logging infrastructure — no timestamps, no severity levels, no ability to suppress in tests. All pipeline output now uses `logging.getLogger(__name__)`. `Dashboard.py` calls `basicConfig` at startup so logs appear in the Streamlit terminal. |
 | Test mock updated with `status_code` | `tests/test_ingest.py` | The World Bank retry logic reads `resp.status_code`; the existing `_MockResponse` fixture lacked the attribute, causing 5 test failures after the retry fix. Added `status_code = 200` default. |
+
+---
+
+## 13. Probability transparency, UX cleanup, and model robustness (third pass)
+
+A third improvement pass addressed the kata requirement — *"If your model outputs 0.73 you should be able to tell us a probability of what, over what horizon, calibrated how, and with what uncertainty"* — plus a set of correctness and robustness issues found by auditing every displayed number.
+
+### Probability metadata — every metric answers four questions
+
+Every `st.metric` in the app now has a `help=` tooltip exposing:
+1. **Probability of what** — the precise event or quantity being estimated
+2. **Horizon** — forward-looking 6-month (recession) vs. current-state (inflation HMM)
+3. **Calibrated how** — isotonic calibration for recession; unsupervised HMM posteriors for inflation; z-score normalization for non-US stress scores
+4. **Uncertainty** — all metrics are point estimates with no confidence interval; documented explicitly
+
+### Non-US "Recession Risk %" renamed to "Recession Stress Score"
+
+The composite model for UK/Germany/Japan uses inverted GDP growth z-scored against each country's own history — a normalised index, not a calibrated probability. Displaying it as "%" alongside the US logistic regression output was misleading. Renamed and tooltip-documented accordingly.
+
+### Inflation chart regime labels — removed hardcoded thresholds
+
+The stacked area chart legend previously showed `"Low (<2%)"`, `"Moderate (2–4%)"`, `"High (>4%)"`. The Gaussian HMM does not enforce these boundaries — it learns emission distributions from data, and state boundaries are the crossover points of learned Gaussians, not fixed cutoffs. Labels simplified to `"Low / Moderate / High"` to avoid implying a precision the model does not have.
+
+### HMM robustness — sanity checks and multi-seed training
+
+Two issues were identified and fixed:
+
+| Issue | Fix |
+|---|---|
+| State collapse: Baum-Welch converged to a local optimum where two states shared nearly identical means (low=2.66%, moderate=2.67%) | Training now runs up to 30 random seeds and keeps the highest-likelihood model that passes all three separation checks |
+| No guard against degenerate training outcomes | `_label_states()` now raises `RuntimeError` with the actual emission means if: `high_mean < 3.5%`, `low_mean > 3.0%`, or any adjacent gap `< 1%`. Also logs emission means at INFO level on every successful run. |
+
+The `_sorted_cpi_means()` / `_means_are_valid()` helpers are shared between the selection loop and `_label_states()` to avoid duplicating threshold logic.
+
+### HMM posterior display precision
+
+P(Low) / P(Moderate) / P(High) metrics now show two decimal places (`99.97%` instead of `100.0%`) so near-100% posteriors are visible rather than hidden by rounding. A caption was added to the stacked area chart explaining that near-100% values are expected Gaussian HMM behaviour when an observation falls squarely within one state's emission distribution — they reflect model sharpness, not genuine certainty.
+
+**Why `predict_proba` not `predict`:** `predict_proba` returns smoothed posteriors from the forward-backward algorithm (a distribution over states at each time step). `predict` returns the Viterbi hard sequence (most likely single path). For a risk dashboard, probability distributions are more informative than hard labels — they show ambiguity at regime transitions. Variable renamed from the misleading `log_probs` to `state_probs`.
+
+### DuckDB concurrent read access
+
+The production app and VS Code's DuckDB extension both holding the same file in exclusive mode caused `IOException` on every read during normal dashboard use. All read-path functions (`read_indicators`, `read_indicators_multi`, `read_model_outputs`, `latest_indicator_date`) now open with `read_only=True`, which uses shared locks allowing concurrent readers. Write operations (upsert, schema init) retain exclusive read-write connections. A `DB_PATH.exists()` guard prevents `read_only=True` from failing on a non-existent file — falls back to read-write to initialise the schema, then returns empty results. This also fixed the one failing test (`test_score_country_empty_when_data_missing`): all 24 tests now pass.
+
+### FRED retry logic
+
+FRED series fetching had no retry — a single transient network error permanently marked a series as failed for that refresh cycle. Added exponential backoff (1 s, 2 s, 3 attempts) matching the existing World Bank retry pattern. Retry attempt number is logged so transient vs. persistent failures are distinguishable.
+
+### Dashboard UX cleanup
+
+| Change | Rationale |
+|---|---|
+| Removed "Model Output — United States" section | Duplicate of the Recession and Inflation deep-dive pages' first tab. The Risk Snapshot panel already shows current values; the section added navigation noise without new information. |
+| Unified country detail view: USA now shows GDP Growth / CPI Inflation / Unemployment (World Bank) | Previously USA showed yield curve and unemployment (FRED), making cross-country comparison impossible. All four countries now use the same three World Bank annual indicators. Yield curve detail belongs on the Recession Model deep-dive page, not the summary dashboard. |
