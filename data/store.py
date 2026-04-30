@@ -20,10 +20,13 @@ _schema_applied_for: str | None = None
 
 @contextmanager
 def get_connection(read_only: bool = False):
-    """Open a DuckDB connection. Read-only connections use shared locks (safe for concurrent access)."""
+    """Open a DuckDB connection. Read-only connections use shared locks (safe for concurrent access).
+    Falls back to read-write when the DB file does not yet exist so the schema can be initialised."""
     global _schema_applied_for
-    conn = duckdb.connect(str(DB_PATH), read_only=read_only)
-    if not read_only and _schema_applied_for != str(DB_PATH):
+    # DuckDB cannot open a non-existent file in read-only mode; create it first if needed.
+    effective_read_only = read_only and DB_PATH.exists()
+    conn = duckdb.connect(str(DB_PATH), read_only=effective_read_only)
+    if not effective_read_only and _schema_applied_for != str(DB_PATH):
         conn.execute(_SCHEMA_SQL)
         _schema_applied_for = str(DB_PATH)
     try:
