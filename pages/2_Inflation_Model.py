@@ -82,7 +82,7 @@ with st.container(border=True):
     )
     c2.metric(
         ":material/check_circle: P(Low)",
-        f"{latest['prob_low']:.1%}",
+        f"{latest['prob_low']:.2%}",
         help=(
             "Smoothed posterior P(current state = Low inflation). "
             "Estimated via the forward-backward algorithm on the full observation sequence (CPI YoY, Core CPI YoY, PCE YoY, UMich expectations). "
@@ -92,7 +92,7 @@ with st.container(border=True):
     )
     c3.metric(
         ":material/warning: P(Moderate)",
-        f"{latest['prob_moderate']:.1%}",
+        f"{latest['prob_moderate']:.2%}",
         help=(
             "Smoothed posterior P(current state = Moderate inflation). "
             "Same forward-backward pass as P(Low). "
@@ -101,7 +101,7 @@ with st.container(border=True):
     )
     c4.metric(
         ":material/dangerous: P(High)",
-        f"{latest['prob_high']:.1%}",
+        f"{latest['prob_high']:.2%}",
         help=(
             "Smoothed posterior P(current state = High inflation). "
             "The HMM learned its transition dynamics from 1980–2019 data; "
@@ -143,10 +143,12 @@ with tab_regime:
     st.plotly_chart(fig, use_container_width=True)
     st.caption(
         f"**{latest['date'].strftime('%b %Y')}** — "
-        f"Low: {probs_latest.get('low', 0):.0%} · "
-        f"Moderate: {probs_latest.get('moderate', 0):.0%} · "
-        f"High: {probs_latest.get('high', 0):.0%}. "
-        f"Stacked area = full probability mass sums to 100% at every date."
+        f"Low: {probs_latest.get('low', 0):.2%} · "
+        f"Moderate: {probs_latest.get('moderate', 0):.2%} · "
+        f"High: {probs_latest.get('high', 0):.2%}. "
+        f"Stacked area sums to 100% at every date. "
+        f"Near-100% posteriors are expected HMM behaviour when observations fall squarely "
+        f"within one state's emission distribution — they reflect model sharpness, not certainty."
     )
 
 # ── Tab 2: Underlying data ────────────────────────────────────────────────────
