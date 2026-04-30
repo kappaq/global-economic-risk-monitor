@@ -126,7 +126,7 @@ tab_regime, tab_data, tab_history, tab_notes = st.tabs([
 with tab_regime:
     fig = go.Figure()
     for regime in ["low", "moderate", "high"]:
-        label = {"low": "Low (<2%)", "moderate": "Moderate (2–4%)", "high": "High (>4%)"}[regime]
+        label = regime.capitalize()
         fig.add_trace(go.Scatter(
             x=inf_out["date"], y=inf_out[f"prob_{regime}"],
             name=label, stackgroup="one",

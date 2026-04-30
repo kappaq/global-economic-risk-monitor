@@ -153,12 +153,12 @@ class InflationModel(BaseRiskModel):
             raise RuntimeError("InflationModel has not been trained. Call train() or run() first.")
         X = features.values
         # Smoothed posterior state probabilities via forward-backward algorithm
-        log_probs = self.model.predict_proba(X)
+        state_probs = self.model.predict_proba(X)
 
         rows = []
-        for i, (date, log_row) in enumerate(zip(features.index, log_probs)):
+        for date, prob_row in zip(features.index, state_probs):
             probs_by_label = {
-                self.state_labels[s]: float(log_row[s]) for s in range(N_STATES)
+                self.state_labels[s]: float(prob_row[s]) for s in range(N_STATES)
             }
             most_likely = max(probs_by_label, key=probs_by_label.get)
             rows.append({
