@@ -26,16 +26,22 @@ def load_data():
     rec_out = read_model_outputs(country_code="USA", model_name="recession")
     rec_out["date"] = pd.to_datetime(rec_out["date"])
 
-    series = read_indicators_multi("USA", ["USREC", "T10Y2Y", "T10Y3M", "UNRATE", "INDPRO"])
+    series = read_indicators_multi("USA", ["USREC", "T10Y2Y", "T10Y3M", "UNRATE", "INDPRO", "PAYEMS", "UMCSENT"])
     nber   = series.get("USREC",  pd.Series(dtype=float)).resample("MS").last()
     t10y2  = series.get("T10Y2Y", pd.Series(dtype=float)).resample("MS").mean()
     t10y3  = series.get("T10Y3M", pd.Series(dtype=float)).resample("MS").mean()
     unemp  = series.get("UNRATE", pd.Series(dtype=float)).resample("MS").last()
     indpro = series.get("INDPRO", pd.Series(dtype=float)).resample("MS").last()
+    pay    = series.get("PAYEMS", pd.Series(dtype=float)).resample("MS").last()
+    sent   = series.get("UMCSENT", pd.Series(dtype=float)).resample("MS").last()
 
-    return rec_out.sort_values("date"), nber, t10y2, t10y3, unemp, indpro
+    pay_3m_pct = pay.pct_change(3) * 100
+    roll = sent.rolling(60, min_periods=24)
+    sent_mean = roll.mean()
 
-rec_out, nber, t10y2, t10y3, unemp, indpro = load_data()
+    return rec_out.sort_values("date"), nber, t10y2, t10y3, unemp, indpro, pay_3m_pct, sent, sent_mean
+
+rec_out, nber, t10y2, t10y3, unemp, indpro, pay_3m_pct, sent, sent_mean = load_data()
 
 if rec_out.empty:
     st.error(
@@ -81,7 +87,7 @@ with st.container(border=True):
         delta_color="inverse",
         help=(
             "P(NBER-defined recession begins within the next 6 months). "
-            "Calibrated logistic regression with isotonic calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit). "
+            "Calibrated logistic regression with sigmoid calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit). "
             "Trained Jan 1985–Dec 2019; all post-2020 observations are fully out-of-sample. "
             "Point estimate — no confidence interval is computed."
         ),
@@ -162,15 +168,49 @@ with tab_ind:
             st.plotly_chart(fig3, use_container_width=True)
             st.caption("Rising unemployment is a lagging signal — often peaks after recession ends.")
 
+    col_c, col_d = st.columns(2)
+
+    with col_c:
+        with st.container(border=True):
+            st.markdown("**Industrial Production Index**")
+            fig4 = go.Figure()
+            add_recessions(fig4)
+            fig4.add_trace(go.Scatter(x=indpro.index, y=indpro.values,
+                                      name="INDPRO", line=dict(color="#2DC653", width=1.5)))
+            fig4.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=0),
+                               yaxis_title="Index (2017=100)", legend=dict(orientation="h", y=1.12))
+            st.plotly_chart(fig4, use_container_width=True)
+            st.caption("Declining industrial output is an early signal of economic contraction.")
+
+    with col_d:
+        with st.container(border=True):
+            st.markdown("**Nonfarm Payrolls — 3-Month Growth**")
+            fig5 = go.Figure()
+            add_recessions(fig5)
+            fig5.add_hline(y=0, line_dash="dot", line_color="black", opacity=0.4)
+            fig5.add_trace(go.Scatter(x=pay_3m_pct.index, y=pay_3m_pct.values,
+                                      name="Payrolls 3M %", line=dict(color="#A8DADC", width=1.5),
+                                      fill="tozeroy", fillcolor="rgba(168,218,220,0.15)"))
+            fig5.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=0),
+                               yaxis_title="3-Month Change (%)", legend=dict(orientation="h", y=1.12))
+            st.plotly_chart(fig5, use_container_width=True)
+            st.caption("Negative payroll growth (below zero) is a reliable pre-recession signal.")
+
     with st.container(border=True):
-        st.markdown("**Industrial Production Index**")
-        fig4 = go.Figure()
-        add_recessions(fig4)
-        fig4.add_trace(go.Scatter(x=indpro.index, y=indpro.values,
-                                  name="INDPRO", line=dict(color="#2DC653", width=1.5)))
-        fig4.update_layout(height=220, margin=dict(l=0, r=0, t=10, b=0),
-                           yaxis_title="Index (2017=100)", legend=dict(orientation="h", y=1.15))
-        st.plotly_chart(fig4, use_container_width=True)
+        st.markdown("**Consumer Sentiment (UMich) vs. 5-Year Rolling Mean**")
+        fig6 = go.Figure()
+        add_recessions(fig6)
+        fig6.add_trace(go.Scatter(x=sent.index, y=sent.values,
+                                  name="Sentiment", line=dict(color="#F4A261", width=1.5)))
+        fig6.add_trace(go.Scatter(x=sent_mean.index, y=sent_mean.values,
+                                  name="60-Month Mean", line=dict(color="#457B9D", width=1.5, dash="dash")))
+        fig6.update_layout(height=240, margin=dict(l=0, r=0, t=10, b=0),
+                           yaxis_title="Index", legend=dict(orientation="h", y=1.08))
+        st.plotly_chart(fig6, use_container_width=True)
+        st.caption(
+            "The model uses the z-score of sentiment relative to its 60-month rolling mean — "
+            "how pessimistic households are compared to their own recent history, not an absolute level."
+        )
 
 # ── Tab 3: Backtesting ────────────────────────────────────────────────────────
 
@@ -267,12 +307,12 @@ with tab_notes:
         st.markdown("""
 | Parameter | Value |
 |-----------|-------|
-| Algorithm | Logistic Regression + isotonic calibration (`CalibratedClassifierCV`) |
+| Algorithm | Logistic Regression + sigmoid calibration (`CalibratedClassifierCV`) |
 | Training window | January 1985 – December 2019 |
 | Evaluation window | January 2020 – present (includes COVID recession) |
 | Target | NBER recession indicator shifted **−6 months** (forward-looking) |
 | Features | 10Y-2Y spread · 10Y-3M spread · ΔUnemployment (3M) · ΔIndustrial Production (3M) · ΔPayrolls (3M) · Sentiment z-score |
-| Calibration | Isotonic regression on 5-fold cross-validation |
+| Calibration | Sigmoid calibration on 5-fold TimeSeriesSplit |
 | Class weighting | Balanced — recessions are ~12% of months since 1985 |
 """)
 
@@ -281,7 +321,7 @@ with tab_notes:
         with st.container(border=True):
             st.markdown("**Why Logistic Regression?**")
             st.markdown(
-                "Interpretable, well-calibrated with isotonic method, and performs reliably "
+                "Interpretable, well-calibrated with sigmoid method, and performs reliably "
                 "on ~500 monthly training samples. A neural network would overfit on this "
                 "dataset size. Calibration ensures P(0.73) means 73% historically correct."
             )

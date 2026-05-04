@@ -232,7 +232,7 @@ if model_row is not None:
         if sel == "USA":
             _comp_help  = "0.5 × P(recession next 6 months) + 0.5 × P(high inflation regime). Mixed horizon: recession is 6-month forward; inflation is current-state. Not independently calibrated."
             _rec_label  = ":material/trending_down: Recession Probability"
-            _rec_help   = "P(NBER recession begins within the next 6 months). Calibrated logistic regression with isotonic calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit), trained Jan 1985–Dec 2019. Post-2020 is out-of-sample. Point estimate — no confidence interval shown."
+            _rec_help   = "P(NBER recession begins within the next 6 months). Calibrated logistic regression with sigmoid calibration (CalibratedClassifierCV, 5-fold TimeSeriesSplit), trained Jan 1985–Dec 2019. Post-2020 is out-of-sample. Point estimate — no confidence interval shown."
             _inf_help   = "Most probable latent state from the Gaussian HMM (3 states), labelled by learned CPI emission means. Current-state estimate only — not a forward forecast."
         else:
             _comp_help  = "Normalized stress index: 0.4 × GDP stress + 0.4 × CPI stress + 0.2 × unemployment stress. Each component z-scored against own history, min-max scaled to [0–1]. Not a probability — not calibrated against any ground truth."

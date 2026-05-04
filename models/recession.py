@@ -1,7 +1,7 @@
 """
 Recession Probability Model
 ----------------------------
-Algorithm : Logistic Regression with isotonic calibration
+Algorithm : Logistic Regression with sigmoid calibration
 Target    : P(NBER recession in the next 6 months)
 Features  : yield spreads, unemployment delta, industrial production,
             payrolls growth, consumer sentiment z-score

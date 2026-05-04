@@ -135,6 +135,7 @@ with tab_regime:
         ))
     fig.update_layout(
         height=380,
+        hovermode="x unified",
         yaxis=dict(title="Regime Probability", tickformat=".0%", range=[0, 1]),
         xaxis_title="",
         margin=dict(l=0, r=0, t=10, b=0),
@@ -200,9 +201,9 @@ with tab_history:
     st.dataframe(
         recent.set_index("Month"),
         column_config={
-            "P(Low)":      st.column_config.ProgressColumn("P(Low)",      min_value=0, max_value=1, format="%.0%"),
-            "P(Moderate)": st.column_config.ProgressColumn("P(Moderate)", min_value=0, max_value=1, format="%.0%"),
-            "P(High)":     st.column_config.ProgressColumn("P(High)",     min_value=0, max_value=1, format="%.0%"),
+            "P(Low)":      st.column_config.ProgressColumn("P(Low)",      min_value=0, max_value=1, format="%.0f%%"),
+            "P(Moderate)": st.column_config.ProgressColumn("P(Moderate)", min_value=0, max_value=1, format="%.0f%%"),
+            "P(High)":     st.column_config.ProgressColumn("P(High)",     min_value=0, max_value=1, format="%.0f%%"),
         },
         use_container_width=True,
     )
