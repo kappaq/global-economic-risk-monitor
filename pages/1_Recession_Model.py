@@ -67,7 +67,10 @@ def add_recessions(fig, label=False):
 # ── KPI metrics ───────────────────────────────────────────────────────────────
 
 latest = rec_out.iloc[-1]
-prev   = rec_out.iloc[-4] if len(rec_out) >= 4 else rec_out.iloc[0]
+# Find the most recent row at or before 3 months ago — robust to missing monthly data
+_target_date = latest["date"] - pd.DateOffset(months=3)
+_prev_mask   = rec_out["date"] <= _target_date
+prev = rec_out[_prev_mask].iloc[-1] if _prev_mask.any() else rec_out.iloc[0]
 
 with st.container(border=True):
     c1, c2, c3, c4 = st.columns(4)

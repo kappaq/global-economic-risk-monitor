@@ -62,19 +62,21 @@ class RecessionModel(BaseRiskModel):
         # Shift target: predict recession 6 months ahead
         df["target"] = df["recession"].shift(-FORECAST_HORIZON_MONTHS)
 
-        return df.dropna()
+        # Drop rows where any feature is missing; keep rows where only target is NaN
+        # (those are the most recent months — valid for prediction, unknown outcome)
+        return df.dropna(subset=self._feature_cols())
 
     def train(self, features: pd.DataFrame) -> None:
         # Trim 6 months from training end to prevent target leakage across the boundary
         horizon_adj = pd.Timestamp(TRAIN_END) - pd.DateOffset(months=FORECAST_HORIZON_MONTHS)
-        train = features[features.index <= horizon_adj]
+        train = features[(features.index <= horizon_adj) & features["target"].notna()]
         X = train[self._feature_cols()]
         y = train["target"].astype(int)
 
         # TimeSeriesSplit respects temporal order — no future data bleeds into folds
         tscv = TimeSeriesSplit(n_splits=5)
         base = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
-        calibrated = CalibratedClassifierCV(base, method="isotonic", cv=tscv)
+        calibrated = CalibratedClassifierCV(base, method="sigmoid", cv=tscv)
         self.pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("model", calibrated),

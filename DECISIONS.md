@@ -84,13 +84,13 @@ Key architectural and modeling choices, with rationale and trade-offs considered
 
 ---
 
-## 9. Class imbalance in recession model: balanced weighting
+## 9. Class imbalance in recession model: balanced weighting + sigmoid calibration
 
-**Chose:** `class_weight='balanced'` in LogisticRegression.
+**Chose:** `class_weight='balanced'` in LogisticRegression with `CalibratedClassifierCV(method='sigmoid')`.
 
-**Why:** NBER recession periods cover roughly 12% of months since 1985. Without balancing, the model learns to predict "no recession" almost always and achieves high accuracy but zero recall on the minority class. Balanced weighting upsamples recession months to give the model signal on rare events.
+**Why:** The original combination of `class_weight='balanced'` with isotonic calibration caused both mechanisms to fight each other. Balanced weighting pushes raw logistic scores up for recession periods; isotonic calibration (a step-function mapping) then maps those scores back to empirical validation-fold frequencies (~12% recession months), capping all output probabilities at ~27% regardless of input — making the 50% threshold permanently unreachable and recall zero. Switching to sigmoid calibration (Platt scaling) applies a smooth logistic mapping rather than a brittle step function, preserving the benefit of balanced weighting while producing probabilities distributed across the full [0,1] range (observed max: ~60%).
 
-**Trade-off:** Slightly inflated false-positive rate. Acceptable given the use case — a false alarm is less costly than missing a recession signal in a risk monitoring tool.
+**Trade-off:** Sigmoid calibration is less flexible than isotonic on large datasets. On ~500 monthly training samples isotonic is actually the more brittle choice — it overfits the step function to the sparse validation bins. Sigmoid is the appropriate choice at this dataset size.
 
 ---
 
